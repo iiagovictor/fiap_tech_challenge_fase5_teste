@@ -91,7 +91,7 @@ services:
   # ChromaDB — Vector Database for RAG
   # ============================================================
   chromadb:
-    image: chromadb/chroma:0.4.22
+    image: chromadb/chroma:0.4.24
     container_name: chromadb_rag
     ports:
       - "8002:8000"

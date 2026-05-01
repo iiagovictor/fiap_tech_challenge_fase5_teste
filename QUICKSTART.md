@@ -56,17 +56,37 @@ make setup-infra
 ```
 
 Isso irá subir:
-- 🔬 **MLflow** → http://localhost:5000
+- 🔬 **MLflow** → http://localhost:5001
 - 📦 **MinIO** → http://localhost:9001 (minioadmin/minioadmin123)
 - 🗄️ **Redis** → localhost:6379
 - 🗄️ **ChromaDB** → http://localhost:8002
 - 📈 **Prometheus** → http://localhost:9090
 - 📊 **Grafana** → http://localhost:3000 (admin/admin)
-- 🤖 **Ollama** → http://localhost:11434
 
 Aguarde ~15 segundos para os serviços iniciarem.
 
-### **Passo 4: Baixar e Processar Dados**
+### **Passo 4: Configurar LLM (Opcional)**
+
+Se quiser usar o agente LLM com Google Gemini:
+
+```bash
+# Edite o arquivo .env
+nano .env
+
+# Adicione ou descomente:
+LLM_MODEL=gemini/gemini-2.0-flash-exp
+GOOGLE_API_KEY=sua-chave-api-aqui
+
+# Popule o conhecimento base (RAG)
+make seed-rag
+```
+
+**Obter Google API Key:**
+1. Acesse: https://makersuite.google.com/app/apikey
+2. Crie uma chave de API
+3. Cole no `.env`
+
+### **Passo 5: Baixar e Processar Dados**
 
 ```bash
 # Baixar dados históricos do Yahoo Finance (ITUB4, PETR4, VALE3, etc.)
@@ -76,7 +96,7 @@ make data-download
 make data-features
 ```
 
-### **Passo 5: Treinar Modelo LSTM**
+### **Passo 6: Treinar Modelo LSTM**
 
 ```bash
 # Treinar e registrar no MLflow
@@ -85,7 +105,7 @@ make train
 # Ver experimento: http://localhost:5001
 ```
 
-### **Passo 6: Iniciar API**
+### **Passo 7: Iniciar API**
 
 ```bash
 # Iniciar FastAPI na porta 8000
@@ -132,12 +152,22 @@ curl -X POST http://localhost:8000/predict \
 }
 ```
 
-### **Agente LLM com RAG** (requer `make install-llm`)
+### **Agente LLM com RAG** (requer `make install-llm` + Google API Key)
 ```bash
 curl -X POST http://localhost:8000/agent \
   -H "Content-Type: application/json" \
-  -d '{"query": "Qual a tendência de ITUB4 para os próximos dias?"}'
+  -d '{"query": "Qual a cotação da ITUB4.SA?"}'
 ```
+
+**Perguntas disponíveis:**
+- "Quais os tickers disponíveis?"
+- "Qual a cotação da PETR4.SA?"
+- "Comparar o desempenho das ações"
+- "Recomendar investimento no ITUB4.SA"
+
+**Fallback automático:**
+- Se Gemini falhar (503), tenta `gemini-1.5-flash`
+- Se LLM indisponível, retorna dados diretos do yfinance
 
 ### **Drift Detection**
 ```bash
