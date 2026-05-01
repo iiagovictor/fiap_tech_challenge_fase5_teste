@@ -107,6 +107,20 @@ class Settings(BaseSettings):
         le=8192,
         description="Maximum tokens for LLM generation",
     )
+    
+    # API Keys for LLM providers
+    google_api_key: str | None = Field(
+        default=None,
+        description="Google API Key for Gemini models",
+    )
+    openai_api_key: str | None = Field(
+        default=None,
+        description="OpenAI API Key",
+    )
+    groq_api_key: str | None = Field(
+        default=None,
+        description="Groq API Key for Llama models",
+    )
 
     # ============================================================
     # Data Ingestion

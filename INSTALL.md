@@ -45,6 +45,29 @@ make install-llm
 - ChromaDB (vector store)
 - Sentence Transformers (embeddings)
 
+**Configuração adicional:**
+```bash
+# Edite .env e configure o LLM
+nano .env
+
+# Para Google Gemini (recomendado):
+LLM_MODEL=gemini/gemini-2.0-flash-exp
+GOOGLE_API_KEY=sua-chave-aqui
+
+# Para OpenAI:
+LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=sk-...
+
+# Para Ollama local (requer instalação):
+LLM_MODEL=ollama/llama3
+```
+
+**Popular base de conhecimento:**
+```bash
+# Popula ChromaDB com conhecimento de análise técnica
+make seed-rag
+```
+
 ---
 
 ### 3️⃣ **Adicionar Feature Store** (Feast)
@@ -150,6 +173,59 @@ pip install -e ".[monitoring,security]"
 
 **Erro: `No module named 'evidently'`**
 → Rode `pip install -e ".[monitoring]"`
+
+**Erro: `make: uvicorn: command not found`**
+→ O Makefile foi corrigido para usar `$(CURDIR)/.venv/bin/python` (caminho absoluto)
+→ Se ainda ocorrer, rode diretamente:
+```bash
+cd /Users/seu-usuario/path/to/fiap_tech_challenge_fase5
+.venv/bin/python -m uvicorn src.serving.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Erro: ChromaDB `np.float_` removed in NumPy 2.0**
+→ ChromaDB 0.4.24 requer NumPy < 2.0
+→ O pyproject.toml já especifica `numpy>=1.26.4,<2.0.0`
+→ Se necessário: `.venv/bin/pip install 'numpy>=1.26.4,<2.0.0'`
+
+**Erro: ChromaDB `no such column: collections.topic`**
+→ Schema incompatível após mudança de versão
+→ Solução: Limpar database e popular novamente
+```bash
+mv ./data/chromadb ./data/chromadb.old
+mkdir -p ./data/chromadb
+docker-compose restart chromadb
+make seed-rag
+```
+
+**Erro: ChromaDB `404 Not Found` no endpoint `/api/v2/auth/identity`**
+→ Incompatibilidade entre client Python (0.5.x) e servidor Docker (0.4.24)
+→ Verifique versões: `.venv/bin/pip show chromadb` (deve ser 0.4.24)
+→ Solução: `.venv/bin/pip install --force-reinstall chromadb==0.4.24`
+
+**Erro: `cannot import name 'service' from 'google.protobuf'`**
+→ MLflow requer protobuf < 5.0, mas versão mais nova foi instalada
+→ Solução:
+```bash
+.venv/bin/pip install 'protobuf>=4.24.0,<5.0.0'
+.venv/bin/pip install 'importlib-metadata>=3.7.0,<8' 'packaging<25' 'tenacity>=7,<9'
+```
+→ Se persistir, reinstale o ambiente:
+```bash
+.venv/bin/pip install -e . -e '.[llm]'
+```
+
+**Erro: Google API Key invalid (400)**
+→ Verifique se a chave está correta no `.env`
+→ Teste: `curl "https://generativelanguage.googleapis.com/v1beta/models?key=SUA_CHAVE"`
+→ Obtenha chave em: https://makersuite.google.com/app/apikey
+
+**Erro: Gemini 503 (high demand)**
+→ O sistema tem fallback automático para `gemini-1.5-flash`
+→ Se persistir, o endpoint retorna dados diretos do yfinance
+
+**Aviso: RAG pipeline unavailable (404)**
+→ Collection vazia - rode `make seed-rag` para popular
+→ O sistema funciona sem RAG (opcional)
 
 ---
 

@@ -60,6 +60,7 @@ Plataforma MLOps/LLMOps **cloud-agnostic** para o Datathon da Fase 5, evoluindo 
 - Docker + Docker Compose
 - AWS CLI configurado (para deploy)
 - Terraform 1.5+ (opcional, para IaC)
+- Google API Key (para LLM Gemini - opcional)
 
 ### Setup Local
 
@@ -69,15 +70,25 @@ git clone <repo-url>
 cd fiap_tech_challenge_fase5
 cp .env.example .env
 
-# 2. Instalar dependências
+# 2. Criar ambiente virtual e instalar dependências
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+make install            # Core (ML + API)
+make install-llm        # Adiciona LLM/RAG (opcional)
+make install-feast      # Adiciona Feature Store (opcional)
 
-# 3. Subir infraestrutura local (MLflow, Redis, Prometheus, Grafana)
+# 3. Subir infraestrutura local (MLflow, Redis, Prometheus, Grafana, ChromaDB)
 make setup-infra
 
-# 4. Executar pipeline end-to-end
+# 4. Configurar LLM (opcional)
+# Edite .env e adicione:
+# LLM_MODEL=gemini/gemini-2.0-flash-exp
+# GOOGLE_API_KEY=sua-chave-aqui
+
+# 5. Popular base de conhecimento RAG (opcional)
+make seed-rag
+
+# 6. Executar pipeline end-to-end
 make data-download      # Baixa dados yfinance
 make data-features      # Gera features técnicas
 make feast-apply        # Configura Feature Store
@@ -90,6 +101,7 @@ make serve              # API em localhost:8000
 - 🔬 MLflow: http://localhost:5001
 - 📊 Grafana: http://localhost:3000 (admin/admin)
 - 📈 Prometheus: http://localhost:9090
+- 🗄️ ChromaDB: http://localhost:8002
 - 🚀 API: http://localhost:8000/docs
 
 ---
@@ -137,6 +149,7 @@ make data-download        # Baixa ITUB4, PETR4, VALE3, etc.
 make data-features        # Calcula RSI, MACD, EMAs, etc.
 make feast-apply          # Aplica definições Feature Store
 make feast-materialize    # Materializa features no Redis
+make seed-rag             # Popula ChromaDB com conhecimento (opcional)
 ```
 
 ### Treinamento
@@ -191,8 +204,32 @@ curl -X POST http://localhost:8000/predict \
 curl -X POST http://localhost:8000/agent \
   -H "Content-Type: application/json" \
   -d '{
-    "ticker": "PETR4.SA",
-    "question": "Qual o risco atual desta ação baseado nos indicadores técnicos?"
+    "query": "Qual a cotação da PETR4.SA?",
+    "ticker": "PETR4.SA"
+  }'
+```
+
+**Nota:** O agente tem fallback automático:
+1. Tenta LLM Gemini (ReAct + RAG)
+2. Se indisponível, usa `gemini-1.5-flash` (mais rápido)
+3. Se falhar, retorna dados diretos do yfinance
+
+#### Ferramentas Disponíveis para o Agente
+
+O agente ReAct tem acesso a:
+- 📈 **`predict_stock_direction`** - Predição de valorização usando modelo LSTM ou indicadores técnicos
+- 📊 **`get_stock_price_history`** - Histórico de preços via yfinance
+- 🔧 **`calculate_technical_indicators`** - RSI, MACD, Médias Móveis, Bollinger Bands
+- 🔀 **`compare_stocks`** - Comparação de performance entre ações
+- 📚 **RAG Knowledge Base** - Conceitos de análise técnica (ChromaDB)
+
+**Exemplo com predição LSTM:**
+```bash
+curl -X POST http://localhost:8000/agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Qual é a probabilidade do ITUB4.SA valorizar amanhã?",
+    "ticker": "ITUB4.SA"
   }'
 ```
 

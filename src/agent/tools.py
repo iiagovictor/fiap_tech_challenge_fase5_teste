@@ -2,6 +2,7 @@
 Financial analysis tools for the LLM agent.
 
 Provides tools for:
+- Stock price prediction via LSTM model
 - Technical analysis calculation
 - Price trend analysis
 - Market sentiment indicators
@@ -158,6 +159,127 @@ def _interpret_indicators(rsi: float, price: float, sma_20: float, sma_50: float
     return ", ".join(signals)
 
 
+def predict_stock_direction(ticker: str) -> dict:
+    """
+    Predict stock price direction (valorization probability) using LSTM model.
+    
+    If model is not available, provides technical analysis-based prediction.
+    
+    Args:
+        ticker: Stock ticker symbol (e.g., ITUB4.SA)
+    
+    Returns:
+        Dictionary with prediction, probability, and confidence
+    """
+    logger.info(f"Predicting stock direction for {ticker}")
+    
+    try:
+        # Try to use the model prediction via internal API call
+        import httpx
+        
+        try:
+            # Call local prediction endpoint
+            response = httpx.post(
+                "http://localhost:8000/predict",
+                json={"ticker": ticker},
+                timeout=5.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                prediction = data["prediction"]  # 1 = up, 0 = down
+                probability = data["probability"]
+                
+                return {
+                    "ticker": ticker,
+                    "prediction": "valorização" if prediction == 1 else "desvalorização",
+                    "probability_up": round(probability * 100, 2),
+                    "probability_down": round((1 - probability) * 100, 2),
+                    "confidence": "alta" if abs(probability - 0.5) > 0.2 else "moderada",
+                    "model": "LSTM",
+                    "recommendation": _generate_recommendation(prediction, probability),
+                }
+        except Exception as api_error:
+            logger.warning(f"Model API unavailable: {api_error}. Using technical indicators fallback...")
+        
+        # Fallback: Use technical indicators to make educated guess
+        indicators = calculate_technical_indicators(ticker, period="3mo")
+        
+        if "error" in indicators:
+            return {"error": indicators["error"]}
+        
+        # Build prediction based on technical indicators
+        rsi = indicators["rsi_14"]
+        current_price = indicators["current_price"]
+        sma_20 = indicators["sma_20"]
+        sma_50 = indicators["sma_50"]
+        
+        # Simple predictive logic based on indicators
+        bullish_signals = 0
+        bearish_signals = 0
+        
+        # RSI signals
+        if rsi < 30:
+            bullish_signals += 2  # Oversold - likely to bounce
+        elif rsi > 70:
+            bearish_signals += 2  # Overbought - likely to correct
+        elif rsi > 50:
+            bullish_signals += 1
+        else:
+            bearish_signals += 1
+        
+        # Moving average signals
+        if current_price > sma_20 > sma_50:
+            bullish_signals += 2  # Strong uptrend
+        elif current_price < sma_20 < sma_50:
+            bearish_signals += 2  # Strong downtrend
+        elif current_price > sma_20:
+            bullish_signals += 1
+        else:
+            bearish_signals += 1
+        
+        # Calculate probability
+        total_signals = bullish_signals + bearish_signals
+        probability_up = bullish_signals / total_signals if total_signals > 0 else 0.5
+        
+        prediction = 1 if probability_up > 0.5 else 0
+        
+        return {
+            "ticker": ticker,
+            "prediction": "valorização" if prediction == 1 else "desvalorização",
+            "probability_up": round(probability_up * 100, 2),
+            "probability_down": round((1 - probability_up) * 100, 2),
+            "confidence": "moderada" if abs(probability_up - 0.5) > 0.15 else "baixa",
+            "model": "Technical Indicators (Fallback)",
+            "recommendation": _generate_recommendation(prediction, probability_up),
+            "analysis": {
+                "rsi": round(rsi, 2),
+                "price_vs_sma20": "acima" if current_price > sma_20 else "abaixo",
+                "price_vs_sma50": "acima" if current_price > sma_50 else "abaixo",
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error predicting stock direction: {e}")
+        return {"error": str(e)}
+
+
+def _generate_recommendation(prediction: int, probability: float) -> str:
+    """Generate trading recommendation based on prediction."""
+    if probability > 0.7:
+        if prediction == 1:
+            return "COMPRA FORTE - Alta probabilidade de valorização"
+        else:
+            return "VENDA FORTE - Alta probabilidade de desvalorização"
+    elif probability > 0.6:
+        if prediction == 1:
+            return "COMPRA - Probabilidade moderada de valorização"
+        else:
+            return "VENDA - Probabilidade moderada de desvalorização"
+    else:
+        return "NEUTRO - Incerteza alta, aguardar melhores sinais"
+
+
 def compare_stocks(tickers: list[str], period: str = "1mo") -> dict:
     """
     Compare performance of multiple stocks.
@@ -213,6 +335,14 @@ TOOLS = [
         "function": calculate_technical_indicators,
     },
     {
+        "name": "predict_stock_direction",
+        "description": "Predict stock price direction and valorization probability using LSTM model or technical indicators. Use this for questions about 'probabilidade de valorizar', 'vai subir', 'previsão', 'prediction'.",
+        "parameters": {
+            "ticker": {"type": "string", "description": "Stock ticker symbol"},
+        },
+        "function": predict_stock_direction,
+    },
+    {
         "name": "compare_stocks",
         "description": "Compare performance of multiple stocks",
         "parameters": {
@@ -240,7 +370,12 @@ if __name__ == "__main__":
     result = calculate_technical_indicators("ITUB4.SA", period="3mo")
     print(f"   {result}\n")
 
-    # Test 3: Compare stocks
-    print("3. Stock Comparison:")
+    # Test 3: Stock prediction
+    print("3. Stock Direction Prediction:")
+    result = predict_stock_direction("ITUB4.SA")
+    print(f"   {result}\n")
+
+    # Test 4: Compare stocks
+    print("4. Stock Comparison:")
     result = compare_stocks(["ITUB4.SA", "PETR4.SA"], period="1mo")
     print(f"   {result}\n")

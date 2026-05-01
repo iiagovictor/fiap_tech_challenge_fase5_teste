@@ -491,17 +491,131 @@ async def agent_query(request: AgentRequest):
     try:
         logger.info(f"Agent query: {request.query}")
 
-        # TODO: Implement actual LLM agent with ReAct pattern
-        # For now, return mock response
-        response_text = f"Based on technical analysis, {request.ticker or 'the requested stock'} shows interesting patterns. The RSI indicates moderate momentum, while MACD suggests potential trend strength."
+        # Try to use real agent, fallback to simple tool execution if LLM not available
+        try:
+            from src.agent.react_agent import get_agent
+            
+            agent = get_agent()
+            result = agent.query(request.query)
+            
+            # Check if agent failed (max iterations or error)
+            if result.get("error") or "wasn't able to complete" in result.get("answer", ""):
+                logger.warning("LLM agent failed, falling back to direct tools...")
+                raise ValueError("LLM agent incomplete")
+            
+            # Extract sources from tool calls
+            sources = []
+            if result.get("tool_calls") and len(result["tool_calls"]) > 0:
+                # Agent used tools - list which ones
+                tool_names = [f"{call['tool']}(ticker={call['params'].get('ticker', 'N/A')})" 
+                             for call in result["tool_calls"]]
+                sources = tool_names
+                logger.info(f"✅ Agent used {len(tool_names)} tool(s): {', '.join([t.split('(')[0] for t in tool_names])}")
+            else:
+                # Agent didn't use tools - just LLM
+                sources = ["LLM Agent (no tools used)"]
+                logger.warning("⚠️ Agent provided answer without using tools - may be hallucinated!")
+            
+            return AgentResponse(
+                query=request.query,
+                response=result["answer"],
+                sources=sources,
+                timestamp=datetime.now().isoformat(),
+            )
+            
+        except (ImportError, ValueError, Exception) as ie:
+            logger.warning(f"LLM agent unavailable or failed: {ie}")
+            logger.info("Falling back to direct tool execution...")
+            
+            # Fallback: Try to use tools directly based on query type
+            from src.agent.tools import get_stock_price_history, calculate_technical_indicators, compare_stocks
+            
+            query_lower = request.query.lower()
+            
+            # Check query type
+            if any(word in query_lower for word in ["disponível", "tickers", "lista", "quais ações"]):
+                # Question about available tickers
+                response_text = f"""📋 Tickers disponíveis para consulta:
 
-        return AgentResponse(
-            query=request.query,
-            response=response_text,
-            sources=["Technical Analysis", "Market Data"],
-            timestamp=datetime.now().isoformat(),
-        )
+{settings.data_tickers}
 
+Você pode consultar qualquer um desses ativos usando o endpoint /agent com o parâmetro "ticker".
+
+Exemplo: "Qual a cotação da PETR4.SA?" ou "Análise técnica da VALE3.SA"
+"""
+                return AgentResponse(
+                    query=request.query,
+                    response=response_text.strip(),
+                    sources=["Configuration", "System"],
+                    timestamp=datetime.now().isoformat(),
+                )
+            
+            elif any(word in query_lower for word in ["comparar", "melhor", "pior desempenho"]):
+                # Question about comparison
+                tickers = settings.data_tickers.split(",")[:5]  # Limit to 5 for performance
+                comparison = compare_stocks(tickers, period="1mo")
+                
+                if "error" in comparison:
+                    response_text = f"Erro ao comparar ações: {comparison['error']}"
+                else:
+                    response_text = f"""📊 Comparação de Ações (último mês):
+
+🏆 Melhor Desempenho: {comparison['best_performer']}
+📉 Pior Desempenho: {comparison['worst_performer']}
+
+Detalhes:
+"""
+                    for stock in comparison["results"][:3]:
+                        response_text += f"\n• {stock['ticker']}: {stock['price_change_pct']:+.2f}% (R$ {stock['current_price']})"
+                
+                return AgentResponse(
+                    query=request.query,
+                    response=response_text.strip(),
+                    sources=["Yahoo Finance", "Comparative Analysis"],
+                    timestamp=datetime.now().isoformat(),
+                )
+            
+            else:
+                # Default: Stock analysis for specific ticker
+                ticker = request.ticker or "ITUB4.SA"
+                
+                # Extract ticker from query if present
+                import re
+                ticker_pattern = r'([A-Z]{4}\d{1,2}\.SA|\^BVSP)'
+                matches = re.findall(ticker_pattern, request.query.upper())
+                if matches:
+                    ticker = matches[0]
+                
+                # Get price and technical data
+                price_data = get_stock_price_history(ticker, period="1mo")
+                tech_data = calculate_technical_indicators(ticker, period="3mo")
+                
+                if "error" in price_data:
+                    raise HTTPException(status_code=404, detail=price_data["error"])
+                
+                # Format response
+                response_text = f"""Análise de {ticker}:
+
+📊 Cotação Atual: R$ {price_data['current_price']}
+📈 Variação (1 mês): {price_data['price_change_pct']:+.2f}%
+💰 Preço: R$ {price_data['low_price']} - R$ {price_data['high_price']}
+
+Indicadores Técnicos:
+• RSI (14): {tech_data.get('rsi_14', 'N/A')} - {tech_data.get('signal', 'N/A')}
+• MACD: {tech_data.get('macd', 'N/A')}
+• SMA20: R$ {tech_data.get('sma_20', 'N/A')}
+• SMA50: R$ {tech_data.get('sma_50', 'N/A')}
+"""
+                
+                return AgentResponse(
+                    query=request.query,
+                    response=response_text.strip(),
+                    sources=["Yahoo Finance", "Technical Analysis"],
+                    timestamp=datetime.now().isoformat(),
+                )
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Agent query failed: {str(e)}")

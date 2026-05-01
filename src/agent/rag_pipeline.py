@@ -44,11 +44,19 @@ class RAGPipeline:
         self.host = host or settings.chroma_host
         self.port = port or settings.chroma_port
 
+        # Disable telemetry completely to avoid PostHog errors
+        import os
+        os.environ["CHROMA_TELEMETRY_DISABLED"] = "1"
+        os.environ["ANONYMIZED_TELEMETRY"] = "FALSE"
+
         # Initialize ChromaDB client
         self.client = chromadb.HttpClient(
             host=self.host,
             port=self.port,
-            settings=Settings(anonymized_telemetry=False),
+            settings=Settings(
+                anonymized_telemetry=False,
+                allow_reset=True,
+            ),
         )
 
         # Get or create collection

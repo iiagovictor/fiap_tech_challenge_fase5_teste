@@ -1,9 +1,9 @@
 .PHONY: help install dev-install setup-infra teardown-infra \
         data-download data-features feast-apply feast-materialize \
-        train serve serve-docker test test-cov lint format \
-        dvc-init dvc-push dvc-pull clean deploy-aws
+        train serve serve-alt stop-serve serve-docker test test-cov lint format \
+        dvc-init dvc-push dvc-pull clean deploy-aws seed-rag
 
-PYTHON  := python3
+PYTHON  := $(CURDIR)/.venv/bin/python
 COMPOSE := docker compose
 PROJECT := fiap-tc-fase5
 AWS_REGION := us-east-1
@@ -16,22 +16,22 @@ help:  ## Mostra este help
 
 # ─── Installation ─────────────────────────────────────────────────────────────
 install:  ## Instala dependências CORE (ML + API, sem LLM)
-	pip install --upgrade pip
-	pip install -e .
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -e .
 
 install-full:  ## Instala TODAS as dependências (LLM + Feast + Security)
-	pip install --upgrade pip
-	pip install -e ".[llm,feast-support,monitoring,security,pipeline,cloud]"
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -e ".[llm,feast-support,monitoring,security,pipeline,cloud]"
 
 install-llm:  ## Instala apenas dependências LLM/RAG (LiteLLM + ChromaDB)
-	pip install -e ".[llm]"
+	$(PYTHON) -m pip install -e ".[llm]"
 
 install-feast:  ## Instala Feature Store (Feast + Redis)
-	pip install -e ".[feast-support]"
+	$(PYTHON) -m pip install -e ".[feast-support]"
 
 dev-install:  ## Instala dependências de desenvolvimento
-	pip install -e ".[dev]"
-	pre-commit install
+	$(PYTHON) -m pip install -e ".[dev]"
+	.venv/bin/pre-commit install
 
 # ─── Local Infrastructure (Docker) ───────────────────────────────────────────
 setup-infra:  ## Sobe MLflow, Redis, Prometheus, Grafana
@@ -70,6 +70,11 @@ feast-materialize:  ## Materializa features no Redis (online store)
 feast-ui:  ## Abre Feast Web UI (porta 8888)
 	cd feast && ../.venv/bin/feast ui
 
+# ─── RAG Knowledge Base ───────────────────────────────────────────────────────
+seed-rag:  ## Popula ChromaDB com conhecimento inicial (análise técnica)
+	@echo "🌱 Seeding RAG knowledge base..."
+	$(PYTHON) -m src.agent.seed_rag
+
 # ─── Training ─────────────────────────────────────────────────────────────────
 train:  ## Treina modelo LSTM e registra no MLflow
 	@set -a && source .env && set +a && $(PYTHON) -m src.models.train
@@ -79,7 +84,14 @@ train-baseline:  ## Treina apenas baselines (LogReg + RF) sem LSTM
 
 # ─── Serving ──────────────────────────────────────────────────────────────────
 serve:  ## Inicia API FastAPI local (porta 8000)
-	uvicorn src.serving.app:app --host 0.0.0.0 --port 8000 --reload
+	$(PYTHON) -m uvicorn src.serving.app:app --host 0.0.0.0 --port 8000 --reload
+
+serve-alt:  ## Inicia API em porta alternativa (8001)
+	$(PYTHON) -m uvicorn src.serving.app:app --host 0.0.0.0 --port 8001 --reload
+
+stop-serve:  ## Para o servidor na porta 8000
+	@echo "🛑 Parando servidor na porta 8000..."
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null || echo "✅ Nenhum processo na porta 8000"
 
 serve-docker:  ## Inicia API em container Docker
 	docker build -t $(PROJECT)-serving -f src/serving/Dockerfile .

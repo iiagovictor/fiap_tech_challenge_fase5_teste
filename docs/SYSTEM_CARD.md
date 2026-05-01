@@ -27,10 +27,17 @@ The system implements a complete MLOps pipeline following ML maturity level 2+ (
 - Azure Blob: `az://container/`
 
 **LLM Abstraction (LiteLLM):**
+- Google Gemini: `gemini/gemini-2.0-flash-exp` (default)
+- Google Gemini Fallback: `gemini/gemini-1.5-flash` (if 503)
 - Ollama (local): `ollama/llama3`
 - AWS Bedrock: `bedrock/anthropic.claude-3-sonnet`
 - Azure OpenAI: `azure/gpt-4o`
 - OpenAI: `gpt-4o`
+
+**Fallback Strategy:**
+1. Primary LLM (Gemini 2.0)
+2. Fallback LLM (Gemini 1.5 Flash on 503)
+3. Direct tools (yfinance) if LLM unavailable
 
 ## System Behavior
 
@@ -67,7 +74,9 @@ The system implements a complete MLOps pipeline following ML maturity level 2+ (
   - Input: `{"ticker": "ITUB4.SA", "timestamp": "2025-01-15T10:00:00Z"}`
   - Output: `{"prediction": 1, "probability": 0.65}`
 - `POST /agent` - LLM agent query
-  - Input: `{"query": "What's the technical analysis for ITUB4?"}`
+  - Input: `{"query": "What's the technical analysis for ITUB4?", "ticker": "ITUB4.SA"}`
+  - Output: `{"response": "...", "sources": ["LLM Agent", "Yahoo Finance"]}`
+  - Fallback: Returns yfinance data if LLM unavailable
   - Output: `{"response": "...", "sources": [...]}`
 - `GET /drift` - Drift detection report
 
@@ -128,10 +137,13 @@ make data-features
 # 2. Apply Feast feature store
 make feast-apply
 
-# 3. Train model
+# 3. Seed RAG knowledge base (optional)
+make seed-rag
+
+# 4. Train model
 make train
 
-# 4. Evaluate
+# 5. Evaluate
 make test
 ```
 
